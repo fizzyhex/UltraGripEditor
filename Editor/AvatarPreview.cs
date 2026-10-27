@@ -34,7 +34,17 @@ namespace UltraGripEditor
         static AvatarPreview()
         {
             AssetWarehouse.OnReady(HookWarehouse);
+            EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+            EditorApplication.playModeStateChanged += OnPlayModeChanged;
             if(Barcode != "") EditorApplication.delayCall += () => Load(Barcode).Forget();
+        }
+
+        // Deferred because the SDK reinitialises UniTask's player loop on EnteredEditMode, dropping tasks queued before it
+        private static void OnPlayModeChanged(PlayModeStateChange state)
+        {
+            if(Barcode == "") return;
+            if(state == PlayModeStateChange.ExitingEditMode || state == PlayModeStateChange.EnteredEditMode)
+                EditorApplication.delayCall += () => Load(Barcode).Forget();
         }
 
         // Clearing the warehouse unloads the avatar's bundle and destroys the loaded asset
@@ -65,6 +75,13 @@ namespace UltraGripEditor
             if(barcode == "")
             {
                 SetStatus("");
+                return;
+            }
+
+            // The editor's AssetWarehouse is null in play mode
+            if(EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                SetStatus("Unavailable in play mode");
                 return;
             }
 
