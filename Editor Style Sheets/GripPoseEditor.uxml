@@ -26,6 +26,11 @@
         </ui:VisualElement>
         <ui:VisualElement name="EditOn" style="display: none; align-items: center; margin-top: 10px;">
             <ui:Button text="Mirror Handle" display-tooltip-when-elided="true" name="EditMirrorHandle" style="display: flex; width: 50%;" />
+            <ui:VisualElement name="EditSnap">
+                <uie:ToolbarToggle name="EditSnapToggle" tooltip="Snap hand and finger handles" />
+                <uie:FloatField name="EditSnapMove" label="Move" tooltip="Hand position grid size in metres, relative to the grip target" />
+                <uie:FloatField name="EditSnapRotate" label="Rotate" tooltip="Rotation increment in degrees, relative to where the drag started" />
+            </ui:VisualElement>
             <ui:IMGUIContainer style="flex-direction: row; flex-grow: 1; flex-shrink: 0;">
                 <ui:Button text="Cancel" display-tooltip-when-elided="true" name="CancelEditing" style="flex-grow: 1;" />
                 <ui:Button text="Save" display-tooltip-when-elided="true" name="SaveEditing" style="flex-grow: 1;" />

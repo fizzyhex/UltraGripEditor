@@ -42,6 +42,7 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
     private Transform currentEditingBone;
     private Quaternion globalHandleRotation = Quaternion.identity;
     private int dragControl;
+    private Vector3 dragStartPosition;
     private Vector3 dragPosition;
     private Quaternion dragStartRotation;
     private Quaternion dragRotation;
@@ -247,9 +248,10 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
 
     bool IsDragging => dragControl != 0 && GUIUtility.hotControl == dragControl;
 
-    void BeginDrag(Quaternion rotation)
+    void BeginDrag(Vector3 position, Quaternion rotation)
     {
         dragControl = GUIUtility.hotControl;
+        dragStartPosition = position;
         dragStartRotation = rotation;
     }
 
@@ -267,11 +269,21 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
         Handles.TransformHandle(ref newPosition, ref newHandleRotation);
         if(!EditorGUI.EndChangeCheck()) return;
 
-        if(!dragging) BeginDrag(rotation);
+        if(!dragging) BeginDrag(position, rotation);
         dragPosition = newPosition;
         dragRotation = ApplyHandleRotation(rotation, handleRotation, newHandleRotation);
 
-        HandleConversion.HandleConfiguration resultingHandle = HandleConversion.WorldToGripHandle(visualizer.targetGrip, SimpleTransform.Create(dragPosition - visualizer.HandOffset, dragRotation), visualizer.viewingHand);
+        Vector3 offset = visualizer.HandOffset;
+        Vector3 posePosition = dragPosition - offset;
+        Quaternion poseRotation = dragRotation;
+        if(HandPoseSnapping.Enabled)
+        {
+            SimpleTransform gripTarget = SimpleTransform.Create(visualizer.gripTarget);
+            posePosition = HandPoseSnapping.SnapPosition(gripTarget, dragStartPosition - offset, posePosition, HandPoseSnapping.Move);
+            poseRotation = HandPoseSnapping.SnapRotation(dragStartRotation, poseRotation, HandPoseSnapping.Rotate);
+        }
+
+        HandleConversion.HandleConfiguration resultingHandle = HandleConversion.WorldToGripHandle(visualizer.targetGrip, SimpleTransform.Create(posePosition, poseRotation), visualizer.viewingHand);
         if(visualizer.viewingHand == SelectedHand.Left)
         {
             currentEditingPose.poseData.leftHandle = resultingHandle.handle;
@@ -296,10 +308,11 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
         Quaternion newHandleRotation = Handles.RotationHandle(handleRotation, bone.position);
         if(!EditorGUI.EndChangeCheck()) return;
 
-        if(!dragging) BeginDrag(rotation);
+        if(!dragging) BeginDrag(bone.position, rotation);
         dragRotation = ApplyHandleRotation(rotation, handleRotation, newHandleRotation);
 
-        localRotation = Quaternion.Inverse(bone.parent.rotation) * dragRotation;
+        Quaternion snapped = HandPoseSnapping.Enabled ? HandPoseSnapping.SnapRotation(dragStartRotation, dragRotation, HandPoseSnapping.Rotate) : dragRotation;
+        localRotation = Quaternion.Inverse(bone.parent.rotation) * snapped;
         bone.localRotation = localRotation;
     }
 
@@ -316,20 +329,14 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
 
         if(!dragging)
         {
-            BeginDrag(rotation);
+            BeginDrag(bone.position, rotation);
             dragStartAngle = angle;
         }
         dragRotation = newRotation;
 
-        angle = Mathf.DeltaAngle(0f, dragStartAngle + SignedAngle(dragStartRotation, newRotation, axis));
-    }
-
-    // Degrees in [-180, 180], positive when the rotation axis points along axis
-    static float SignedAngle(Quaternion from, Quaternion to, Vector3 axis)
-    {
-        (to * Quaternion.Inverse(from)).ToAngleAxis(out float angle, out Vector3 deltaAxis);
-        angle = Mathf.DeltaAngle(0f, angle);
-        return Vector3.Dot(deltaAxis, axis) < 0f ? -angle : angle;
+        float delta = HandPoseSnapping.SignedAngle(dragStartRotation, newRotation, axis);
+        if(HandPoseSnapping.Enabled) delta = HandPoseSnapping.Snap(delta, HandPoseSnapping.Rotate);
+        angle = Mathf.DeltaAngle(0f, dragStartAngle + delta);
     }
 
     private void OnGripSelected(TargetGrip grip)
@@ -449,6 +456,35 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
 
         Button editMirrorHandle = tree.Q<Button>("EditMirrorHandle");
         editMirrorHandle.clicked += MirrorHandle;
+
+        ToolbarToggle snapToggle = tree.Q<ToolbarToggle>("EditSnapToggle");
+        snapToggle.Add(new Image { image = EditorGUIUtility.IconContent(EditorGUIUtility.isProSkin ? "Snap/d_SceneViewSnap" : "Snap/SceneViewSnap").image });
+        snapToggle.SetValueWithoutNotify(HandPoseSnapping.Enabled);
+
+        FloatField snapMove = tree.Q<FloatField>("EditSnapMove");
+        snapMove.SetValueWithoutNotify(HandPoseSnapping.Move);
+        snapMove.RegisterValueChangedCallback(evt =>
+        {
+            HandPoseSnapping.Move = evt.newValue;
+            snapMove.SetValueWithoutNotify(HandPoseSnapping.Move);
+        });
+
+        FloatField snapRotate = tree.Q<FloatField>("EditSnapRotate");
+        snapRotate.SetValueWithoutNotify(HandPoseSnapping.Rotate);
+        snapRotate.RegisterValueChangedCallback(evt =>
+        {
+            HandPoseSnapping.Rotate = evt.newValue;
+            snapRotate.SetValueWithoutNotify(HandPoseSnapping.Rotate);
+        });
+
+        snapMove.SetEnabled(HandPoseSnapping.Enabled);
+        snapRotate.SetEnabled(HandPoseSnapping.Enabled);
+        snapToggle.RegisterValueChangedCallback(evt =>
+        {
+            HandPoseSnapping.Enabled = evt.newValue;
+            snapMove.SetEnabled(evt.newValue);
+            snapRotate.SetEnabled(evt.newValue);
+        });
 
         UpdatePanelContent();
 
