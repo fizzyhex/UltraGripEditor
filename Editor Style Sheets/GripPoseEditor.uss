@@ -1,1 +1,7 @@
-VisualElement {}
+#AvatarCrate Button {
+    min-height: 0;
+}
+
+#AvatarCrate .unity-object-field__input {
+    height: 20px;
+}

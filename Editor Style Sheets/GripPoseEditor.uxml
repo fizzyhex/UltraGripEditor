@@ -1,5 +1,10 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" xsi="http://www.w3.org/2001/XMLSchema-instance" engine="UnityEngine.UIElements" editor="UnityEditor.UIElements" noNamespaceSchemaLocation="../../../UIElementsSchema/UIElements.xsd" editor-extension-mode="False">
+    <ui:Style src="GripPoseEditor.uss" />
     <ui:DropdownField label="Editor Mode" index="0" choices="None,Visualize,Edit" name="ModeDropdown" />
+    <ui:VisualElement name="AvatarGroup" style="display: none;">
+        <uie:PropertyField name="AvatarCrate" binding-path="avatar" label="Avatar" tooltip="Avatar crate to preview the hand of. Leave empty for the default hand." />
+        <ui:Label name="AvatarStatus" display-tooltip-when-elided="true" style="-unity-text-align: upper-right; margin-right: 5px; display: none;" />
+    </ui:VisualElement>
     <ui:VisualElement name="VisualizeMode" style="margin-top: 10px; display: none;">
         <ui:Label text="Hand Pose Visualizer" display-tooltip-when-elided="true" style="-unity-text-align: upper-center;" />
         <ui:DropdownField label="Hand" index="0" choices="Left, Right" name="VisualizeHandDropdown" />
@@ -21,10 +26,6 @@
         </ui:VisualElement>
         <ui:VisualElement name="EditOn" style="display: none; align-items: center; margin-top: 10px;">
             <ui:Button text="Mirror Handle" display-tooltip-when-elided="true" name="EditMirrorHandle" style="display: flex; width: 50%;" />
-            <ui:IMGUIContainer style="flex-direction: row; width: 50%; flex-shrink: 0; flex-grow: 1;">
-                <ui:Button text="Undo" display-tooltip-when-elided="true" name="EditUndo" style="flex-grow: 1;" />
-                <ui:Button text="Redo" display-tooltip-when-elided="true" name="EditRedo" style="flex-grow: 1;" />
-            </ui:IMGUIContainer>
             <ui:IMGUIContainer style="flex-direction: row; flex-grow: 1; flex-shrink: 0;">
                 <ui:Button text="Cancel" display-tooltip-when-elided="true" name="CancelEditing" style="flex-grow: 1;" />
                 <ui:Button text="Save" display-tooltip-when-elided="true" name="SaveEditing" style="flex-grow: 1;" />

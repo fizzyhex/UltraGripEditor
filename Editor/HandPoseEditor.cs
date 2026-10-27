@@ -6,7 +6,9 @@ using SLZ.Marrow.Utilities;
 using System;
 using UnityEditor.Overlays;
 using UnityEditor;
+using UnityEditor.UIElements;
 using UnityEngine.UIElements;
+using SLZ.Marrow.Warehouse;
 using UltraGripEditor;
 
 using static GripVisualizer;
@@ -26,6 +28,10 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
     private int radiusIndex = 0;
     private int pryIndex = 0;
     private VisualElement visualizerGroup;
+    private VisualElement avatarGroup;
+    private Label avatarStatus;
+    private PropertyField avatarField;
+    private AvatarPreviewTarget avatarTarget;
     private VisualElement editorGroup;
     private VisualElement editOff;
     private VisualElement editOn;
@@ -34,9 +40,10 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
     private GameObject editingSelectedObject;
     private PoseDataReference currentEditingPose;
     private Transform currentEditingBone;
+    private Quaternion globalHandleRotation = Quaternion.identity;
 
-    private Stack<HandPose.PoseData> editingPoseUndoStack = new Stack<HandPose.PoseData>();
-    private Stack<HandPose.PoseData> editingPoseRedoStack = new Stack<HandPose.PoseData>();
+    // Holds the last recorded state of currentEditingPose
+    private HandPoseEditTarget editTarget;
 
     private bool _lastVisible = false;
     public bool visible
@@ -91,15 +98,6 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
                 HandleUtility.AddDefaultControl(controlId);
             }
 
-            if (e.type == EventType.MouseDown && e.button == 0)
-            {
-                if(editingPoseUndoStack.Count == 0 || !editingPoseUndoStack.Peek().Equals(currentEditingPose.poseData))
-                {
-                    editingPoseUndoStack.Push(currentEditingPose.poseData);
-                    editingPoseRedoStack.Clear();
-                }
-            }
-
             EditorGUI.BeginChangeCheck();
 
             foreach(Transform bone in transforms)
@@ -130,7 +128,10 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
                     {
                         Vector3 position = visualizer.viewingHandReferences.hand.position;
                         Quaternion rotation = visualizer.viewingHandReferences.hand.rotation;
-                        Handles.TransformHandle(ref position, ref rotation);
+                        Quaternion handleRotation = GetHandleRotation(rotation);
+                        Quaternion newHandleRotation = handleRotation;
+                        Handles.TransformHandle(ref position, ref newHandleRotation);
+                        rotation = ApplyHandleRotation(rotation, handleRotation, newHandleRotation);
 
                         if((visualizer.viewingHandReferences.hand.position - position).sqrMagnitude < 0.00001 && Quaternion.Angle(visualizer.viewingHandReferences.hand.rotation, rotation) < 0.1) continue;
 
@@ -138,7 +139,7 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
                         if((visualizer.viewingHandReferences.hand.position - position).sqrMagnitude < 0.00001) position = visualizer.viewingHandReferences.hand.position;
                         if(Quaternion.Angle(visualizer.viewingHandReferences.hand.rotation, rotation) < 0.1) rotation = visualizer.viewingHandReferences.hand.rotation;
 
-                        HandleConversion.HandleConfiguration resultingHandle = HandleConversion.WorldToGripHandle(visualizer.targetGrip, SimpleTransform.Create(position, rotation), visualizer.viewingHand);
+                        HandleConversion.HandleConfiguration resultingHandle = HandleConversion.WorldToGripHandle(visualizer.targetGrip, SimpleTransform.Create(position - visualizer.HandOffset, rotation), visualizer.viewingHand);
                         if(visualizer.viewingHand == SelectedHand.Left)
                         {
                             currentEditingPose.poseData.leftHandle = resultingHandle.handle;
@@ -155,31 +156,31 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
                     else if(bone == visualizer.viewingHandReferences.index1)
                     {
                         Quaternion rotation = bone.rotation;
-                        bone.rotation = Handles.RotationHandle(rotation, bone.position);
+                        bone.rotation = DoRotationHandle(rotation, bone.position);
                         currentEditingPose.poseData.index1 = bone.localRotation;
                     }
                     else if(bone == visualizer.viewingHandReferences.middle1)
                     {
                         Quaternion rotation = bone.rotation;
-                        bone.rotation = Handles.RotationHandle(rotation, bone.position);
+                        bone.rotation = DoRotationHandle(rotation, bone.position);
                         currentEditingPose.poseData.middle1 = bone.localRotation;
                     }
                     else if(bone == visualizer.viewingHandReferences.ring1)
                     {
                         Quaternion rotation = bone.rotation;
-                        bone.rotation = Handles.RotationHandle(rotation, bone.position);
+                        bone.rotation = DoRotationHandle(rotation, bone.position);
                         currentEditingPose.poseData.ring1 = bone.localRotation;
                     }
                     else if(bone == visualizer.viewingHandReferences.pinky1)
                     {
                         Quaternion rotation = bone.rotation;
-                        bone.rotation = Handles.RotationHandle(rotation, bone.position);
+                        bone.rotation = DoRotationHandle(rotation, bone.position);
                         currentEditingPose.poseData.pinky1 = bone.localRotation;
                     }
                     else if(bone == visualizer.viewingHandReferences.thumb1)
                     {
                         Quaternion rotation = bone.rotation;
-                        bone.rotation = Handles.RotationHandle(rotation, bone.position);
+                        bone.rotation = DoRotationHandle(rotation, bone.position);
                         currentEditingPose.poseData.thumb1 = bone.localRotation;
                     }
                     else if(bone == visualizer.viewingHandReferences.index2)
@@ -237,28 +238,47 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
 
             if(EditorGUI.EndChangeCheck())
             {
+                RecordEdit("Edit Hand Pose");
             }
         }
     }
 
-    void UndoEdit()
+    void RecordEdit(string name)
     {
-        if(editingPoseUndoStack.Count == 0) return;
+        if(editTarget == null || currentEditingPose == null) return;
+        if(editTarget.poseData.Equals(currentEditingPose.poseData)) return;
 
-        HandPose.PoseData latestPose = editingPoseUndoStack.Pop();
-        editingPoseRedoStack.Push(latestPose);
-
-        currentEditingPose.poseData = latestPose;
+        Undo.RecordObject(editTarget, name);
+        editTarget.poseData = currentEditingPose.poseData;
     }
 
-    void RedoEdit()
+    void OnUndoRedo()
     {
-        if(editingPoseRedoStack.Count == 0) return;
+        if(editTarget == null || currentEditingPose == null) return;
+        if(editTarget.poseData.Equals(currentEditingPose.poseData)) return;
 
-        HandPose.PoseData latestRedo = editingPoseRedoStack.Pop();
-        editingPoseUndoStack.Push(latestRedo);
+        currentEditingPose.poseData = editTarget.poseData;
+        visualizer.UpdateFingers();
+        SceneView.RepaintAll();
+    }
 
-        currentEditingPose.poseData = latestRedo;
+    // Handle rotations return their absolute value since drag start, so the global handle keeps its rotation until the drag ends
+    Quaternion GetHandleRotation(Quaternion rotation)
+    {
+        if(GUIUtility.hotControl == 0) globalHandleRotation = Quaternion.identity;
+        return Tools.pivotRotation == PivotRotation.Global ? globalHandleRotation : rotation;
+    }
+
+    Quaternion ApplyHandleRotation(Quaternion rotation, Quaternion handleRotation, Quaternion newHandleRotation)
+    {
+        if(Tools.pivotRotation == PivotRotation.Global) globalHandleRotation = newHandleRotation;
+        return newHandleRotation * Quaternion.Inverse(handleRotation) * rotation;
+    }
+
+    Quaternion DoRotationHandle(Quaternion rotation, Vector3 position)
+    {
+        Quaternion handleRotation = GetHandleRotation(rotation);
+        return ApplyHandleRotation(rotation, handleRotation, Handles.RotationHandle(handleRotation, position));
     }
 
     float DrawAngleHandle(ref float angle, Vector3 position, Quaternion rotation, Vector3 axis, float size)
@@ -329,6 +349,25 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
         modeDropdown.index = overlayMode;
 
         visualizerGroup = tree.Q<VisualElement>("VisualizeMode");
+
+        avatarGroup = tree.Q<VisualElement>("AvatarGroup");
+        avatarStatus = tree.Q<Label>("AvatarStatus");
+        if(avatarTarget == null)
+        {
+            avatarTarget = ScriptableObject.CreateInstance<AvatarPreviewTarget>();
+            avatarTarget.hideFlags = HideFlags.DontSave;
+        }
+        avatarTarget.avatar = new AvatarCrateReference(Barcode.IsValidString(AvatarPreview.Barcode) ? new Barcode(AvatarPreview.Barcode) : Barcode.EmptyBarcode());
+        SerializedObject avatarObject = new SerializedObject(avatarTarget);
+        avatarField = tree.Q<PropertyField>("AvatarCrate");
+        avatarField.Bind(avatarObject);
+        avatarField.TrackPropertyValue(avatarObject.FindProperty("avatar._barcode._id"), prop =>
+        {
+            AvatarPreview.Set(Barcode.IsValidString(prop.stringValue) ? prop.stringValue : "");
+        });
+        AvatarPreview.StatusChanged -= UpdateAvatarStatus;
+        AvatarPreview.StatusChanged += UpdateAvatarStatus;
+        UpdateAvatarStatus();
         
         DropdownField visHandDropdown = tree.Q<DropdownField>("VisualizeHandDropdown");
         visHandDropdown.RegisterCallback<ChangeEvent<string>>(evt =>
@@ -378,11 +417,6 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
         Button saveEditButton = tree.Q<Button>("SaveEditing");
         saveEditButton.clicked += EndEditing;
 
-        Button editUndo = tree.Q<Button>("EditUndo");
-        editUndo.clicked += UndoEdit;
-        Button editRedo = tree.Q<Button>("EditRedo");
-        editRedo.clicked += RedoEdit;
-
         Button editMirrorHandle = tree.Q<Button>("EditMirrorHandle");
         editMirrorHandle.clicked += MirrorHandle;
 
@@ -399,7 +433,7 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
         Vector3 position = visualizer.viewingHandReferences.hand.position;
         Quaternion rotation = visualizer.viewingHandReferences.hand.rotation;
 
-        HandleConversion.HandleConfiguration currentHandleConfig = HandleConversion.WorldToGripHandle(visualizer.targetGrip, new SimpleTransform(position, rotation), visualizer.viewingHand);
+        HandleConversion.HandleConfiguration currentHandleConfig = HandleConversion.WorldToGripHandle(visualizer.targetGrip, new SimpleTransform(position - visualizer.HandOffset, rotation), visualizer.viewingHand);
         HandleConversion.HandleConfiguration flippedHandleConfig = HandleConversion.FlipHandle(currentHandleConfig);
         
         if(visualizer.viewingHand == SelectedHand.Left)
@@ -424,6 +458,9 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
             currentEditingPose.poseData.invRightHandle = currentHandleConfig.invHandle;
             currentEditingPose.poseData.rightArtHandle = currentHandleConfig.artHandle;
         }
+
+        RecordEdit("Mirror Hand Pose Handle");
+        visualizer.UpdateFingers();
     }
 
     void StartEditing()
@@ -432,6 +469,12 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
         if(startingPoseData == null) return;
 
         currentEditingPose = startingPoseData;
+        if(editTarget == null)
+        {
+            editTarget = ScriptableObject.CreateInstance<HandPoseEditTarget>();
+            editTarget.hideFlags = HideFlags.DontSave;
+        }
+        editTarget.poseData = currentEditingPose.poseData;
         editingSelectedObject = visualizer.targetGrip.gameObject;
         visualizer.poseDataOverride = currentEditingPose;
 
@@ -448,8 +491,7 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
 
     void CancelEditing()
     {
-        editingPoseUndoStack.Clear();
-        editingPoseRedoStack.Clear();
+        if(editTarget != null) Undo.ClearUndo(editTarget);
 
         currentEditingPose = null;
         currentEditingBone = null;
@@ -459,8 +501,17 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
         editOn.style.display = DisplayStyle.None;
     }
 
+    void UpdateAvatarStatus()
+    {
+        if(avatarStatus == null) return;
+        avatarStatus.text = AvatarPreview.Status;
+        avatarStatus.style.display = AvatarPreview.Status == "" ? DisplayStyle.None : DisplayStyle.Flex;
+    }
+
     void UpdatePanelContent()
     {
+        avatarGroup.style.display = overlayMode == 0 ? DisplayStyle.None : DisplayStyle.Flex;
+
         if (overlayMode == 0)
         {
             visualizerGroup.style.display = DisplayStyle.None;
@@ -481,6 +532,7 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
     public override void OnCreated()
     {
         SceneView.duringSceneGui += OnSceneGUI;
+        Undo.undoRedoPerformed += OnUndoRedo;
         base.OnCreated();
     }
 
@@ -521,7 +573,15 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
 
     public override void OnWillBeDestroyed()
     {
+        AvatarPreview.StatusChanged -= UpdateAvatarStatus;
+        Undo.undoRedoPerformed -= OnUndoRedo;
+        if(editTarget != null)
+        {
+            Undo.ClearUndo(editTarget);
+            ScriptableObject.DestroyImmediate(editTarget);
+        }
         DestroyVisualizer();
+        if(avatarTarget != null) ScriptableObject.DestroyImmediate(avatarTarget);
         base.OnWillBeDestroyed();
     }
 

@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 using SLZ.Marrow;
 using SLZ.Marrow.Utilities;
@@ -119,6 +120,24 @@ public class GripVisualizer : MonoBehaviour
     public HandReference leftHandReferences;
     public HandReference viewingHandReferences => viewingHand == SelectedHand.Left ? leftHandReferences : rightHandReferences;
 
+    private const string LeftAvatarName = "Avatar Hand (Left)";
+    private const string RightAvatarName = "Avatar Hand (Right)";
+
+    public static GameObject PreviewAvatar { get; private set; }
+
+    private GameObject avatarSource;
+    private bool avatarSynced;
+    private bool validating;
+    private AvatarHand leftAvatarHand;
+    private AvatarHand rightAvatarHand;
+
+    public static void SetPreviewAvatar(GameObject avatar)
+    {
+        PreviewAvatar = avatar;
+        foreach(GripVisualizer visualizer in FindObjectsOfType<GripVisualizer>())
+            visualizer.UpdateFingers();
+    }
+
     public void SetPoseData(int groupIndex, int dataIndex, HandPose.PoseData data)
     {
         if(targetGrip == null) return;
@@ -139,13 +158,58 @@ public class GripVisualizer : MonoBehaviour
 
     void SetActiveHands(bool left, bool right)
     {
-        leftHandReferences.handMesh.SetActive(left);
-        rightHandReferences.handMesh.SetActive(right);
+        if(!validating) SyncAvatarHands();
+
+        leftHandReferences.handMesh.SetActive(left && leftAvatarHand == null);
+        rightHandReferences.handMesh.SetActive(right && rightAvatarHand == null);
+        leftAvatarHand?.root.SetActive(left);
+        rightAvatarHand?.root.SetActive(right);
+    }
+
+    void SyncAvatarHands()
+    {
+        if(avatarSynced && avatarSource == PreviewAvatar) return;
+        avatarSynced = true;
+        avatarSource = PreviewAvatar;
+
+        // Clear hands from before domain reloads
+        DestroyChildren(LeftAvatarName);
+        DestroyChildren(RightAvatarName);
+        leftAvatarHand = null;
+        rightAvatarHand = null;
+        if(avatarSource == null) return;
+
+        leftAvatarHand = AvatarHand.Create(avatarSource, leftHandReferences, true, transform, LeftAvatarName);
+        rightAvatarHand = AvatarHand.Create(avatarSource, rightHandReferences, false, transform, RightAvatarName);
+    }
+
+    // World offset of the viewed hand from where its pose places it
+    public Vector3 HandOffset => gripTarget != null ? LargeSphereOffset(gripTarget, viewingHand == SelectedHand.Left) : Vector3.zero;
+
+    private static readonly FieldInfo SphereMaxRadius = typeof(SphereGrip).GetField("_maxRadius", BindingFlags.NonPublic | BindingFlags.Instance);
+
+    // Radius above _maxRadius, along secondaryMovementAxis * primaryMovementAxis
+    Vector3 LargeSphereOffset(Transform target, bool left)
+    {
+        if(!(targetGrip is SphereGrip sphereGrip)) return Vector3.zero;
+
+        float maxRadius = SphereMaxRadius != null ? (float)SphereMaxRadius.GetValue(sphereGrip) : 0f;
+        float excess = Mathf.Max(sphereGrip.radius - maxRadius, 0f);
+        Vector3 tertiary = Vector3.Cross(sphereGrip.secondaryMovementAxis, sphereGrip.primaryMovementAxis).normalized;
+        return target.rotation * tertiary * (left ? -excess : excess);
+    }
+
+    void DestroyChildren(string name)
+    {
+        for(Transform child = transform.Find(name); child != null; child = transform.Find(name))
+            DestroyImmediate(child.gameObject);
     }
 
     void OnValidate()
     {
+        validating = true;
         UpdateFingers();
+        validating = false;
     }
 
     [ContextMenu("Update Vis")]
@@ -179,6 +243,7 @@ public class GripVisualizer : MonoBehaviour
 
         HandReference visualHand = viewingLeft ? leftHandReferences : rightHandReferences;
         SimpleTransform handBaseInWorld = artHandInWorld.Transform(visualHand.handBaseToHand.inverse);
+        handBaseInWorld.position += LargeSphereOffset(gripTarget, viewingLeft);
 
         visualHand.handBase.SetPositionAndRotation(handBaseInWorld.position, handBaseInWorld.rotation);
 
@@ -201,5 +266,7 @@ public class GripVisualizer : MonoBehaviour
         visualHand.thumb1.localRotation = selectedPry.thumb1;
         visualHand.thumb2.localRotation = Quaternion.AngleAxis(selectedPry.thumb2, Vector3.forward);
         visualHand.thumb3.localRotation = Quaternion.AngleAxis(selectedPry.thumb3, Vector3.forward);
+
+        (viewingLeft ? leftAvatarHand : rightAvatarHand)?.Apply();
     }
 }
