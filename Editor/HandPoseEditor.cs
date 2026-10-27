@@ -41,6 +41,11 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
     private PoseDataReference currentEditingPose;
     private Transform currentEditingBone;
     private Quaternion globalHandleRotation = Quaternion.identity;
+    private int dragControl;
+    private Vector3 dragPosition;
+    private Quaternion dragStartRotation;
+    private Quaternion dragRotation;
+    private float dragStartAngle;
 
     // Holds the last recorded state of currentEditingPose
     private HandPoseEditTarget editTarget;
@@ -126,112 +131,77 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
 
                     if(bone == visualizer.viewingHandReferences.hand)
                     {
-                        Vector3 position = visualizer.viewingHandReferences.hand.position;
-                        Quaternion rotation = visualizer.viewingHandReferences.hand.rotation;
-                        Quaternion handleRotation = GetHandleRotation(rotation);
-                        Quaternion newHandleRotation = handleRotation;
-                        Handles.TransformHandle(ref position, ref newHandleRotation);
-                        rotation = ApplyHandleRotation(rotation, handleRotation, newHandleRotation);
-
-                        if((visualizer.viewingHandReferences.hand.position - position).sqrMagnitude < 0.00001 && Quaternion.Angle(visualizer.viewingHandReferences.hand.rotation, rotation) < 0.1) continue;
-
-                        // Sometimes hand drifts off when not doing anything because im converting the positions in a lot of different spaces. Uhh fix maybe bc yea
-                        if((visualizer.viewingHandReferences.hand.position - position).sqrMagnitude < 0.00001) position = visualizer.viewingHandReferences.hand.position;
-                        if(Quaternion.Angle(visualizer.viewingHandReferences.hand.rotation, rotation) < 0.1) rotation = visualizer.viewingHandReferences.hand.rotation;
-
-                        HandleConversion.HandleConfiguration resultingHandle = HandleConversion.WorldToGripHandle(visualizer.targetGrip, SimpleTransform.Create(position - visualizer.HandOffset, rotation), visualizer.viewingHand);
-                        if(visualizer.viewingHand == SelectedHand.Left)
-                        {
-                            currentEditingPose.poseData.leftHandle = resultingHandle.handle;
-                            currentEditingPose.poseData.invLeftHandle = resultingHandle.invHandle;
-                            currentEditingPose.poseData.leftArtHandle = resultingHandle.artHandle;
-                        }
-                        else
-                        {
-                            currentEditingPose.poseData.rightHandle = resultingHandle.handle;
-                            currentEditingPose.poseData.invRightHandle = resultingHandle.invHandle;
-                            currentEditingPose.poseData.rightArtHandle = resultingHandle.artHandle;
-                        }
+                        DrawHandHandle();
                     }
                     else if(bone == visualizer.viewingHandReferences.index1)
                     {
-                        Quaternion rotation = bone.rotation;
-                        bone.rotation = DoRotationHandle(rotation, bone.position);
-                        currentEditingPose.poseData.index1 = bone.localRotation;
+                        DrawBoneRotationHandle(bone, ref currentEditingPose.poseData.index1);
                     }
                     else if(bone == visualizer.viewingHandReferences.middle1)
                     {
-                        Quaternion rotation = bone.rotation;
-                        bone.rotation = DoRotationHandle(rotation, bone.position);
-                        currentEditingPose.poseData.middle1 = bone.localRotation;
+                        DrawBoneRotationHandle(bone, ref currentEditingPose.poseData.middle1);
                     }
                     else if(bone == visualizer.viewingHandReferences.ring1)
                     {
-                        Quaternion rotation = bone.rotation;
-                        bone.rotation = DoRotationHandle(rotation, bone.position);
-                        currentEditingPose.poseData.ring1 = bone.localRotation;
+                        DrawBoneRotationHandle(bone, ref currentEditingPose.poseData.ring1);
                     }
                     else if(bone == visualizer.viewingHandReferences.pinky1)
                     {
-                        Quaternion rotation = bone.rotation;
-                        bone.rotation = DoRotationHandle(rotation, bone.position);
-                        currentEditingPose.poseData.pinky1 = bone.localRotation;
+                        DrawBoneRotationHandle(bone, ref currentEditingPose.poseData.pinky1);
                     }
                     else if(bone == visualizer.viewingHandReferences.thumb1)
                     {
-                        Quaternion rotation = bone.rotation;
-                        bone.rotation = DoRotationHandle(rotation, bone.position);
-                        currentEditingPose.poseData.thumb1 = bone.localRotation;
+                        DrawBoneRotationHandle(bone, ref currentEditingPose.poseData.thumb1);
                     }
                     else if(bone == visualizer.viewingHandReferences.index2)
                     {
                         Handles.color = Color.blue;
-                        DrawAngleHandle(ref currentEditingPose.poseData.index2, bone.position, bone.rotation, bone.forward, boneHandleSize);
+                        DrawAngleHandle(ref currentEditingPose.poseData.index2, bone, boneHandleSize);
                     }
                     else if(bone == visualizer.viewingHandReferences.index3)
                     {
                         Handles.color = Color.blue;
-                        DrawAngleHandle(ref currentEditingPose.poseData.index3, bone.position, bone.rotation, bone.forward, boneHandleSize);
+                        DrawAngleHandle(ref currentEditingPose.poseData.index3, bone, boneHandleSize);
                     }
                     else if(bone == visualizer.viewingHandReferences.middle2)
                     {
                         Handles.color = Color.blue;
-                        DrawAngleHandle(ref currentEditingPose.poseData.middle2, bone.position, bone.rotation, bone.forward, boneHandleSize);
+                        DrawAngleHandle(ref currentEditingPose.poseData.middle2, bone, boneHandleSize);
                     }
                     else if(bone == visualizer.viewingHandReferences.middle3)
                     {
                         Handles.color = Color.blue;
-                        DrawAngleHandle(ref currentEditingPose.poseData.middle3, bone.position, bone.rotation, bone.forward, boneHandleSize);
+                        DrawAngleHandle(ref currentEditingPose.poseData.middle3, bone, boneHandleSize);
                     }
                     else if(bone == visualizer.viewingHandReferences.ring2)
                     {
                         Handles.color = Color.blue;
-                        DrawAngleHandle(ref currentEditingPose.poseData.ring2, bone.position, bone.rotation, bone.forward, boneHandleSize);
+                        DrawAngleHandle(ref currentEditingPose.poseData.ring2, bone, boneHandleSize);
                     }
                     else if(bone == visualizer.viewingHandReferences.ring3)
                     {
                         Handles.color = Color.blue;
-                        DrawAngleHandle(ref currentEditingPose.poseData.ring3, bone.position, bone.rotation, bone.forward, boneHandleSize);
+                        DrawAngleHandle(ref currentEditingPose.poseData.ring3, bone, boneHandleSize);
                     }
                     else if(bone == visualizer.viewingHandReferences.pinky2)
                     {
                         Handles.color = Color.blue;
-                        DrawAngleHandle(ref currentEditingPose.poseData.pinky2, bone.position, bone.rotation, bone.forward, boneHandleSize);
+                        DrawAngleHandle(ref currentEditingPose.poseData.pinky2, bone, boneHandleSize);
                     }
                     else if(bone == visualizer.viewingHandReferences.pinky3)
                     {
                         Handles.color = Color.blue;
-                        DrawAngleHandle(ref currentEditingPose.poseData.pinky3, bone.position, bone.rotation, bone.forward, boneHandleSize);
+                        DrawAngleHandle(ref currentEditingPose.poseData.pinky3, bone, boneHandleSize);
                     }
                     else if(bone == visualizer.viewingHandReferences.thumb2)
                     {
                         Handles.color = Color.blue;
-                        DrawAngleHandle(ref currentEditingPose.poseData.thumb2, bone.position, bone.rotation, bone.forward, boneHandleSize);
+                        DrawAngleHandle(ref currentEditingPose.poseData.thumb2, bone, boneHandleSize);
                     }
                     else if(bone == visualizer.viewingHandReferences.thumb3)
                     {
                         Handles.color = Color.blue;
-                        DrawAngleHandle(ref currentEditingPose.poseData.thumb3, bone.position, bone.rotation, bone.forward, boneHandleSize);
+                        DrawAngleHandle(ref currentEditingPose.poseData.thumb3, bone, boneHandleSize);
                     }
                 }
             }
@@ -272,34 +242,94 @@ public class HandPoseEditorOverlay : Overlay, ITransientOverlay
     Quaternion ApplyHandleRotation(Quaternion rotation, Quaternion handleRotation, Quaternion newHandleRotation)
     {
         if(Tools.pivotRotation == PivotRotation.Global) globalHandleRotation = newHandleRotation;
-        return newHandleRotation * Quaternion.Inverse(handleRotation) * rotation;
+        return Quaternion.Normalize(newHandleRotation * Quaternion.Inverse(handleRotation) * rotation);
     }
 
-    Quaternion DoRotationHandle(Quaternion rotation, Vector3 position)
+    bool IsDragging => dragControl != 0 && GUIUtility.hotControl == dragControl;
+
+    void BeginDrag(Quaternion rotation)
     {
+        dragControl = GUIUtility.hotControl;
+        dragStartRotation = rotation;
+    }
+
+    void DrawHandHandle()
+    {
+        Transform hand = visualizer.viewingHandReferences.hand;
+        bool dragging = IsDragging;
+        Vector3 position = dragging ? dragPosition : hand.position;
+        Quaternion rotation = dragging ? dragRotation : hand.rotation;
         Quaternion handleRotation = GetHandleRotation(rotation);
-        return ApplyHandleRotation(rotation, handleRotation, Handles.RotationHandle(handleRotation, position));
+        Quaternion newHandleRotation = handleRotation;
+        Vector3 newPosition = position;
+
+        EditorGUI.BeginChangeCheck();
+        Handles.TransformHandle(ref newPosition, ref newHandleRotation);
+        if(!EditorGUI.EndChangeCheck()) return;
+
+        if(!dragging) BeginDrag(rotation);
+        dragPosition = newPosition;
+        dragRotation = ApplyHandleRotation(rotation, handleRotation, newHandleRotation);
+
+        HandleConversion.HandleConfiguration resultingHandle = HandleConversion.WorldToGripHandle(visualizer.targetGrip, SimpleTransform.Create(dragPosition - visualizer.HandOffset, dragRotation), visualizer.viewingHand);
+        if(visualizer.viewingHand == SelectedHand.Left)
+        {
+            currentEditingPose.poseData.leftHandle = resultingHandle.handle;
+            currentEditingPose.poseData.invLeftHandle = resultingHandle.invHandle;
+            currentEditingPose.poseData.leftArtHandle = resultingHandle.artHandle;
+        }
+        else
+        {
+            currentEditingPose.poseData.rightHandle = resultingHandle.handle;
+            currentEditingPose.poseData.invRightHandle = resultingHandle.invHandle;
+            currentEditingPose.poseData.rightArtHandle = resultingHandle.artHandle;
+        }
     }
 
-    float DrawAngleHandle(ref float angle, Vector3 position, Quaternion rotation, Vector3 axis, float size)
+    void DrawBoneRotationHandle(Transform bone, ref Quaternion localRotation)
     {
-        Quaternion newRot = Handles.Disc(rotation, position, axis, size, false, 0f);
+        bool dragging = IsDragging;
+        Quaternion rotation = dragging ? dragRotation : bone.rotation;
+        Quaternion handleRotation = GetHandleRotation(rotation);
 
-        Quaternion deltaRot = newRot * Quaternion.Inverse(rotation);
-        deltaRot.ToAngleAxis(out float deltaAngle, out Vector3 deltaAxis);
+        EditorGUI.BeginChangeCheck();
+        Quaternion newHandleRotation = Handles.RotationHandle(handleRotation, bone.position);
+        if(!EditorGUI.EndChangeCheck()) return;
 
-        if (deltaAngle > 180f)
-            deltaAngle -= 360f;
+        if(!dragging) BeginDrag(rotation);
+        dragRotation = ApplyHandleRotation(rotation, handleRotation, newHandleRotation);
 
-        if (Vector3.Dot(deltaAxis, axis) < 0f)
-            deltaAngle = -deltaAngle;
+        localRotation = Quaternion.Inverse(bone.parent.rotation) * dragRotation;
+        bone.localRotation = localRotation;
+    }
 
-        angle += deltaAngle;
+    // Angle in degrees about the bone's forward axis, wrapped to [-180, 180]
+    void DrawAngleHandle(ref float angle, Transform bone, float size)
+    {
+        bool dragging = IsDragging;
+        Quaternion rotation = dragging ? dragRotation : bone.rotation;
+        Vector3 axis = bone.forward;
 
-        if (angle > 180f)
-            angle -= 360f;
+        EditorGUI.BeginChangeCheck();
+        Quaternion newRotation = Handles.Disc(rotation, bone.position, axis, size, false, 0f);
+        if(!EditorGUI.EndChangeCheck()) return;
 
-        return deltaAngle;
+        if(!dragging)
+        {
+            BeginDrag(rotation);
+            dragStartAngle = angle;
+        }
+        dragRotation = newRotation;
+
+        angle = Mathf.DeltaAngle(0f, dragStartAngle + SignedAngle(dragStartRotation, newRotation, axis));
+    }
+
+    // Degrees in [-180, 180], positive when the rotation axis points along axis
+    static float SignedAngle(Quaternion from, Quaternion to, Vector3 axis)
+    {
+        (to * Quaternion.Inverse(from)).ToAngleAxis(out float angle, out Vector3 deltaAxis);
+        angle = Mathf.DeltaAngle(0f, angle);
+        return Vector3.Dot(deltaAxis, axis) < 0f ? -angle : angle;
     }
 
     private void OnGripSelected(TargetGrip grip)
