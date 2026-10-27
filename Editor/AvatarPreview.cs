@@ -33,7 +33,21 @@ namespace UltraGripEditor
 
         static AvatarPreview()
         {
+            AssetWarehouse.OnReady(HookWarehouse);
             if(Barcode != "") EditorApplication.delayCall += () => Load(Barcode).Forget();
+        }
+
+        // Clearing the warehouse unloads the avatar's bundle and destroys the loaded asset
+        private static void HookWarehouse()
+        {
+            if(AssetWarehouse.Instance == null) return;
+            AssetWarehouse.Instance.OnClearEditor -= OnWarehouseCleared;
+            AssetWarehouse.Instance.OnClearEditor += OnWarehouseCleared;
+        }
+
+        private static void OnWarehouseCleared()
+        {
+            if(Barcode != "") Load(Barcode).Forget();
         }
 
         public static void Set(string barcode)
@@ -94,6 +108,7 @@ namespace UltraGripEditor
         private static async UniTask<(GameObject, string)> LoadAvatar(Barcode barcode)
         {
             await UniTask.WaitUntil(() => AssetWarehouse.ready && AssetWarehouse.Instance != null);
+            HookWarehouse();
 
             if(!AssetWarehouse.Instance.TryGetCrate(barcode, out AvatarCrate crate))
             {

@@ -168,7 +168,8 @@ public class GripVisualizer : MonoBehaviour
 
     void SyncAvatarHands()
     {
-        if(avatarSynced && avatarSource == PreviewAvatar) return;
+        // A destroyed source compares equal to null under Unity's ==
+        if(avatarSynced && ReferenceEquals(avatarSource, PreviewAvatar)) return;
         avatarSynced = true;
         avatarSource = PreviewAvatar;
 
