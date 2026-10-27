@@ -62,8 +62,9 @@ namespace UltraGripEditor
                 return null;
             }
 
+            // Components whose scripts fail to load come back null
             foreach(Behaviour behaviour in instance.GetComponentsInChildren<Behaviour>(true))
-                behaviour.enabled = false;
+                if(behaviour != null) behaviour.enabled = false;
             foreach(Collider collider in instance.GetComponentsInChildren<Collider>(true))
                 collider.enabled = false;
             foreach(SkinnedMeshRenderer skin in instance.GetComponentsInChildren<SkinnedMeshRenderer>(true))
